@@ -1,0 +1,261 @@
+{% extends 'layout.html' %}
+
+{% block title %}ML Predictor | IND-AQI Platform{% endblock %}
+
+{% block content %}
+<div class="row g-4 animated-fade justify-content-center">
+    <div class="col-lg-10 col-12">
+        <div class="aqi-card">
+            <h2>🔮 ML-Powered Air Quality Forecaster</h2>
+            <p class="text-secondary mb-0">Select your forecasting engine. Predict daily levels based on temporal trends and weather forecasts, or hourly trends using sequence memory models.</p>
+        </div>
+    </div>
+
+    <!-- Inputs Form -->
+    <div class="col-lg-5 col-12">
+        <div class="aqi-card">
+            <h3 class="card-title"><i class="fa-solid fa-gears"></i> Predictor Parameters</h3>
+            <form id="predictorForm">
+                <div class="row g-3">
+                    <!-- Model Selector Toggle -->
+                    <div class="col-12">
+                        <label class="form-label d-block">Forecasting Engine</label>
+                        <div class="btn-group w-100" role="group" aria-label="Engine selector">
+                            <input type="radio" class="btn-check" name="engine" id="engineXgb" value="xgb" checked onchange="toggleEngine('xgb')">
+                            <label class="btn btn-outline-primary w-50 py-2" for="engineXgb">
+                                <i class="fa-solid fa-bolt"></i> XGBoost (Daily Next-Day)
+                            </label>
+                            
+                            <input type="radio" class="btn-check" name="engine" id="engineLstm" value="lstm" onchange="toggleEngine('lstm')">
+                            <label class="btn btn-outline-primary w-50 py-2" for="engineLstm">
+                                <i class="fa-solid fa-brain"></i> LSTM (Hourly Next-Hour)
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <label for="citySelect" class="form-label">Target City</label>
+                        <select class="form-control" id="citySelect" name="city" required>
+                            <option value="" disabled selected>Choose a city...</option>
+                            {% for city in cities %}
+                            <option value="{{ city }}">{{ city }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Input Parameters (Acting as overrides/inputs depending on engine) -->
+                    <div class="col-sm-6 col-12">
+                        <label for="todayAqi" class="form-label" id="lblAqi">Today's AQI</label>
+                        <input type="number" step="1" class="form-control" id="todayAqi" name="today_aqi" placeholder="e.g. 120" required>
+                    </div>
+                    <div class="col-sm-6 col-12">
+                        <label for="todayPm25" class="form-label" id="lblPm25">Today's PM2.5 (µg/m³)</label>
+                        <input type="number" step="0.1" class="form-control" id="todayPm25" name="today_pm25" placeholder="e.g. 45" required>
+                    </div>
+
+                    <!-- Weather inputs (XGBoost Only) -->
+                    <div class="col-sm-6 col-12 weather-input">
+                        <label for="temp" class="form-label">Tomorrow's Temp (°C)</label>
+                        <input type="number" step="0.1" class="form-control" id="temp" name="temp" placeholder="e.g. 28.5" required>
+                    </div>
+                    <div class="col-sm-6 col-12 weather-input">
+                        <label for="humidity" class="form-label">Tomorrow's Humidity (%)</label>
+                        <input type="number" step="0.1" class="form-control" id="humidity" name="humidity" placeholder="e.g. 65" required>
+                    </div>
+                    <div class="col-sm-6 col-12 weather-input">
+                        <label for="wind" class="form-label">Tomorrow's Wind (km/h)</label>
+                        <input type="number" step="0.1" class="form-control" id="wind" name="wind_speed" placeholder="e.g. 12" required>
+                    </div>
+                    <div class="col-sm-6 col-12 weather-input">
+                        <label for="pressure" class="form-label">Tomorrow's Pressure (hPa)</label>
+                        <input type="number" step="0.1" class="form-control" id="pressure" name="pressure" placeholder="e.g. 1012">
+                    </div>
+
+                    <div class="col-12 mt-4">
+                        <button type="submit" class="btn btn-primary w-100" id="submitBtn">
+                            <i class="fa-solid fa-microchip"></i> Forecast Next-Day AQI
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Results Display with SVG Gauge -->
+    <div class="col-lg-5 col-12">
+        <div class="aqi-card h-100 d-flex flex-column justify-content-center text-center align-items-center" id="predictionResultCard" style="min-height: 420px;">
+            <div id="predictPlaceholder" class="py-4">
+                <i class="fa-solid fa-brain-circuit text-secondary mb-3" style="font-size: 4.5rem; opacity: 0.3;"></i>
+                <h4 id="placeholderTitle">Machine Learning Forecasting</h4>
+                <p class="text-secondary small px-4" id="placeholderDesc">Submit values on the left. The models will combine temporal lags, weather features, and location encoding to predict the index.</p>
+            </div>
+            
+            <div id="predictOutput" style="display: none;" class="w-100">
+                <h4 class="mb-2" id="outputHeader">ML Forecasted Next-Day AQI</h4>
+                
+                <!-- Circular SVG Progress Gauge -->
+                <div class="position-relative d-flex justify-content-center align-items-center my-4" style="height: 200px;">
+                    <svg width="200" height="200" viewBox="0 0 200 200" style="transform: rotate(-90deg);">
+                        <!-- Background track -->
+                        <circle cx="100" cy="100" r="80" stroke="rgba(255, 255, 255, 0.05)" stroke-width="12" fill="transparent" />
+                        <!-- Dynamic meter -->
+                        <circle id="predictGaugeMeter" cx="100" cy="100" r="80" stroke="#00f2fe" stroke-width="12" fill="transparent"
+                                stroke-dasharray="502.6" stroke-dashoffset="502.6" stroke-linecap="round"
+                                style="transition: stroke-dashoffset 1s ease-out, stroke 1s;" />
+                    </svg>
+                    <div class="position-absolute d-flex flex-column align-items-center justify-content-center">
+                        <span class="fs-1 fw-bold" id="predictedAqiDisplay" style="font-size: 3rem !important;">0</span>
+                        <span class="small text-secondary fw-semibold">Predicted AQI</span>
+                    </div>
+                </div>
+
+                <!-- Confidence Interval (LSTM Only) -->
+                <div id="ciContainer" class="mb-3" style="display: none;">
+                    <div class="small text-secondary">
+                        Confidence Range (+/-1σ): <strong id="ciDisplay" class="text-light">0 - 0</strong>
+                    </div>
+                </div>
+
+                <div class="my-3">
+                    <span class="badge-aqi fs-6 py-2 px-4" id="predictedCategoryDisplay">Status</span>
+                </div>
+                <p class="text-secondary px-4 small" id="predictedDescDisplay">Health Advisory info.</p>
+                
+                <!-- Model Specs Alert -->
+                <div class="alert alert-secondary mx-3 mt-4 small text-start" role="alert" style="background: rgba(255, 255, 255, 0.02); border-color: var(--card-border);">
+                    <div id="specXgb">
+                        <i class="fa-solid fa-circle-check text-success"></i> <strong>XGBoost Regressor:</strong> Predicts continuous daily AQI (MAE: ~5.2)<br>
+                        <i class="fa-solid fa-circle-check text-success"></i> <strong>XGBoost Classifier:</strong> Predicts categorical label (Accuracy: ~91.8%)
+                    </div>
+                    <div id="specLstm" style="display: none;">
+                        <i class="fa-solid fa-circle-check text-success"></i> <strong>LSTM Sequence Model:</strong> Learns hourly patterns over 72h lookup<br>
+                        <i class="fa-solid fa-circle-check text-success"></i> <strong>Heteroscedastic Bounds:</strong> Dynamic confidence ranges computed per severity band
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function toggleEngine(engine) {
+        const weatherFields = document.querySelectorAll('.weather-input');
+        const submitBtn = document.getElementById('submitBtn');
+        const lblAqi = document.getElementById('lblAqi');
+        const lblPm25 = document.getElementById('lblPm25');
+        
+        // Reset placeholder values and results on toggle
+        document.getElementById('predictPlaceholder').style.display = 'block';
+        document.getElementById('predictOutput').style.display = 'none';
+
+        if (engine === 'lstm') {
+            // Hide weather inputs since LSTM uses only sequences and time features
+            weatherFields.forEach(el => {
+                el.style.display = 'none';
+                el.querySelector('input').required = false;
+            });
+            // Update labels to show they are optional overrides rather than required inputs
+            lblAqi.innerText = "Current AQI (Override)";
+            lblPm25.innerText = "Current PM2.5 (Override)";
+            document.getElementById('todayAqi').required = false;
+            document.getElementById('todayPm25').required = false;
+            document.getElementById('todayAqi').placeholder = "Use cached reading...";
+            document.getElementById('todayPm25').placeholder = "Use cached reading...";
+            
+            submitBtn.innerHTML = '<i class="fa-solid fa-brain"></i> Run LSTM Hourly Forecast';
+            document.getElementById('placeholderTitle').innerText = "LSTM Sequence Forecasting";
+            document.getElementById('placeholderDesc').innerText = "Select a city. The backend will pull the latest 72 hours of pollutant sequences from the cache and predict the next hour. You can override the current hour\'s inputs above.";
+            document.getElementById('outputHeader').innerText = "LSTM Forecasted Next-Hour AQI";
+        } else {
+            // Show weather inputs
+            weatherFields.forEach(el => {
+                el.style.display = 'block';
+                el.querySelector('input').required = true;
+            });
+            lblAqi.innerText = "Today\'s AQI";
+            lblPm25.innerText = "Today\'s PM2.5 (µg/m³)";
+            document.getElementById('todayAqi').required = true;
+            document.getElementById('todayPm25').required = true;
+            document.getElementById('todayAqi').placeholder = "e.g. 120";
+            document.getElementById('todayPm25').placeholder = "e.g. 45";
+            
+            submitBtn.innerHTML = '<i class="fa-solid fa-bolt"></i> Forecast Next-Day AQI';
+            document.getElementById('placeholderTitle').innerText = "Machine Learning Forecasting";
+            document.getElementById('placeholderDesc').innerText = "Submit today\'s values on the left. The models will combine temporal lags, weather features, and location encoding to predict tomorrow\'s index.";
+            document.getElementById('outputHeader').innerText = "ML Forecasted Next-Day AQI";
+        }
+    }
+
+    document.getElementById('predictorForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const engine = document.querySelector('input[name="engine"]:checked').value;
+        const formData = new FormData(this);
+        
+        const endpoint = engine === 'lstm' ? '/predict_lstm' : '/predict';
+        
+        fetch(endpoint, {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            const placeholder = document.getElementById('predictPlaceholder');
+            const output = document.getElementById('predictOutput');
+            const ciContainer = document.getElementById('ciContainer');
+            const specXgb = document.getElementById('specXgb');
+            const specLstm = document.getElementById('specLstm');
+            
+            if (data.status === 'success') {
+                placeholder.style.display = 'none';
+                output.style.display = 'block';
+                
+                // Set result specs info
+                if (engine === 'lstm') {
+                    ciContainer.style.display = 'block';
+                    document.getElementById('ciDisplay').innerText = `${data.ci_lower} - ${data.ci_upper}`;
+                    specXgb.style.display = 'none';
+                    specLstm.style.display = 'block';
+                } else {
+                    ciContainer.style.display = 'none';
+                    specXgb.style.display = 'block';
+                    specLstm.style.display = 'none';
+                }
+                
+                // Animate SVG Gauge
+                const val = engine === 'lstm' ? data.predicted_aqi : data.predicted_aqi;
+                const percent = Math.min(1.0, val / 500);
+                const circumference = 502.6;
+                const offset = circumference * (1 - percent);
+                
+                const meter = document.getElementById('predictGaugeMeter');
+                meter.style.strokeDashoffset = offset;
+                meter.style.stroke = data.color;
+                
+                // Set text outputs
+                document.getElementById('predictedAqiDisplay').innerText = val;
+                
+                const catDisplay = document.getElementById('predictedCategoryDisplay');
+                catDisplay.innerText = data.predicted_category;
+                catDisplay.style.color = data.color;
+                catDisplay.style.background = `rgba(${hexToRgb(data.color)}, 0.15)`;
+                
+                document.getElementById('predictedDescDisplay').innerText = data.description;
+            } else {
+                alert(data.message);
+            }
+        })
+        .catch(err => console.error("Error predicting AQI:", err));
+    });
+
+    function hexToRgb(hex) {
+        hex = hex.replace('#', '');
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        return `${r}, ${g}, ${b}`;
+    }
+</script>
+{% endblock %}

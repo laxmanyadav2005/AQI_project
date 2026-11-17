@@ -1,0 +1,413 @@
+{% extends 'layout.html' %}
+
+{% block title %}Dashboard | IND-AQI Platform{% endblock %}
+
+{% block content %}
+<div class="row g-4 animated-fade">
+    <!-- Header Section -->
+    <div class="col-12">
+        <div class="aqi-card">
+            <div class="d-flex flex-wrap align-items-start justify-content-between gap-3">
+                <div>
+                    <h1 class="mb-1">🇮🇳 Air Quality Index (AQI) Dashboard</h1>
+                    <p class="text-secondary mb-3">Real-time statistics, predictive models, and comparative insights of air pollution levels across major Indian cities.</p>
+                    <!-- Stat Pills -->
+                    <div class="d-flex flex-wrap gap-2" id="statPillsRow">
+                        <div class="stat-pill"><span class="sp-val" id="spReadings">—</span><span class="sp-lbl">Live Readings</span></div>
+                        <div class="stat-pill"><span class="sp-val">26</span><span class="sp-lbl">Cities</span></div>
+                        <div class="stat-pill"><span class="sp-val" id="spAnomalies">—</span><span class="sp-lbl">Anomalies</span></div>
+                        <div class="stat-pill"><span class="sp-val" id="spWorst">—</span><span class="sp-lbl">Highest AQI</span></div>
+                    </div>
+                </div>
+                <!-- CPCB AQI Scale Legend -->
+                <div style="min-width:260px">
+                    <div class="text-secondary small mb-1 fw-500">CPCB AQI Scale</div>
+                    <div class="aqi-scale">
+                        <div class="aqi-scale-seg" style="background:#29f1c3" title="Good (0-50)"></div>
+                        <div class="aqi-scale-seg" style="background:#9dff00" title="Satisfactory (51-100)"></div>
+                        <div class="aqi-scale-seg" style="background:#f5a623" title="Moderate (101-200)"></div>
+                        <div class="aqi-scale-seg" style="background:#ff6b6b" title="Poor (201-300)"></div>
+                        <div class="aqi-scale-seg" style="background:#c084fc" title="Very Poor (301-400)"></div>
+                        <div class="aqi-scale-seg" style="background:#ff2d2d" title="Severe (401+)"></div>
+                    </div>
+                    <div class="d-flex justify-content-between mt-1" style="font-size:0.65rem; color:var(--text-secondary)">
+                        <span>0 Good</span><span>100</span><span>200</span><span>300</span><span>400</span><span>500+</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map Section (Full Width, Top of Dashboard) -->
+    <div class="col-12">
+        <div class="aqi-card p-2">
+            <div id="indiaMap" style="height: 380px; border-radius: 12px; border: 1px solid var(--card-border);"></div>
+        </div>
+    </div>
+
+    <!-- Active Cities Table -->
+    <div class="col-lg-6 col-12">
+        <div class="aqi-card h-100" style="max-height: 520px; overflow-y: auto;">
+            <h3 class="card-title"><i class="fa-solid fa-list-check"></i> City Standings
+                <span class="badge bg-secondary ms-2" style="font-size:0.7rem">Historical</span>
+            </h3>
+            <div class="table-responsive">
+                <table class="table table-premium table-hover">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>City</th>
+                            <th>AQI</th>
+                            <th>Status</th>
+                            <th>PM2.5</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if cities %}
+                            {% for c in cities %}
+                            <tr style="cursor: pointer;" onclick="loadCityStats('{{ c.city }}'); showHealthAdvisory({{ c.aqi }}, '{{ c.city }}')">
+                                <td>
+                                    {% set i = loop.index %}
+                                    <span class="rank-badge {% if i == 1 %}top1{% elif i == 2 %}top2{% elif i == 3 %}top3{% endif %}">{{ i }}</span>
+                                </td>
+                                <td class="fw-bold">{{ c.city }}</td>
+                                <td><span class="fs-5 fw-bold" style="color: {{ c.color }}">{{ c.aqi }}</span></td>
+                                <td>
+                                    <span class="badge-aqi" style="background: {{ c.bg_color }}; color: {{ c.color }}">
+                                        {{ c.category }}
+                                    </span>
+                                </td>
+                                <td>{{ c.pm25 }} µg/m³</td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-secondary">No city records found. Please ensure the dataset is placed in the correct directory.</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Analysis & Chart Section -->
+    <div class="col-lg-6 col-12">
+        <div class="aqi-card h-100 d-flex flex-column justify-content-between" style="min-height: 480px;">
+            <div>
+                <h3 class="card-title"><i class="fa-solid fa-chart-area"></i> 30-Day Air Quality Trend</h3>
+                <div class="mb-3">
+                    <label for="citySelector" class="form-label">Select City to View Trend:</label>
+                    <select class="form-control" id="citySelector" onchange="loadCityStats(this.value)">
+                        {% if cities %}
+                            {% for c in cities %}
+                            <option value="{{ c.city }}">{{ c.city }}</option>
+                            {% endfor %}
+                        {% else %}
+                            <option value="">No cities available</option>
+                        {% endif %}
+                    </select>
+                </div>
+            </div>
+            
+            <div class="flex-grow-1 my-3" style="min-height: 250px; position: relative;">
+                <canvas id="trendChart"></canvas>
+            </div>
+            
+            <div id="cityAvgDisplay" class="text-secondary text-center small mt-2">
+                Select a city from the map or list to load details.
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let trendChart = null;
+    let map = null;
+    let markers = {};
+
+    // Initialize Leaflet Map
+    function initMap() {
+        // Center map over India
+        map = L.map('indiaMap').setView([21.7679, 78.8718], 5);
+        
+        // Load Dark Mode Basemap
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(map);
+
+        // Fetch cities coordinates from Jinja variables
+        const cities = [
+            {% for c in cities %}
+            {
+                name: "{{ c.city }}",
+                aqi: {{ c.aqi }},
+                category: "{{ c.category }}",
+                color: "{{ c.color }}",
+                lat: {{ c.lat }},
+                lng: {{ c.lng }},
+                pm25: {{ c.pm25 }}
+            },
+            {% endfor %}
+        ];
+
+        cities.forEach(city => {
+            if (city.lat && city.lng) {
+                // Circle marker scaled by AQI level
+                const radius = Math.max(8, Math.min(20, 8 + (city.aqi / 30)));
+                const marker = L.circleMarker([city.lat, city.lng], {
+                    radius: radius,
+                    fillColor: city.color,
+                    color: '#ffffff',
+                    weight: 1.5,
+                    opacity: 0.8,
+                    fillOpacity: 0.6
+                }).addTo(map);
+
+                marker.bindPopup(`
+                    <div style="color: #ffffff; min-width: 140px; font-family: 'Outfit'; line-height: 1.4;">
+                        <h6 style="margin: 0 0 5px 0; font-weight: 700; color: ${city.color};">${city.name}</h6>
+                        <div style="font-size: 13px;">AQI: <strong>${city.aqi}</strong></div>
+                        <div style="font-size: 12px; opacity: 0.8;">Status: ${city.category}</div>
+                        <div style="font-size: 12px; opacity: 0.8;">PM2.5: ${city.pm25} µg/m³</div>
+                    </div>
+                `, { closeButton: false });
+
+                marker.on('click', () => {
+                    loadCityStats(city.name);
+                });
+
+                markers[city.name] = marker;
+            }
+        });
+    }
+
+    function loadCityStats(cityName) {
+        if (!cityName) return;
+        
+        // Update selectors
+        document.getElementById('citySelector').value = cityName;
+        
+        // Pan map and open popup
+        if (markers[cityName] && map) {
+            const marker = markers[cityName];
+            map.panTo(marker.getLatLng());
+            marker.openPopup();
+        }
+        
+        fetch(`/api/city_stats/${cityName}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    document.getElementById('cityAvgDisplay').innerHTML = `
+                        <strong>${cityName}</strong> Historical average AQI: <span class="badge bg-secondary">${data.avg_aqi}</span> (Last 30 recorded days shown above)
+                    `;
+                    
+                    renderChart(data.dates, data.aqi, data.pm25);
+                } else {
+                    console.error(data.message);
+                }
+            })
+            .catch(err => console.error("Error fetching stats:", err));
+    }
+
+    function renderChart(labels, aqiData, pm25Data) {
+        const ctx = document.getElementById('trendChart').getContext('2d');
+        
+        if (trendChart) {
+            trendChart.destroy();
+        }
+        
+        trendChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'AQI Value',
+                        data: aqiData,
+                        borderColor: '#00f2fe',
+                        backgroundColor: 'rgba(0, 242, 254, 0.05)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: true,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'PM2.5 (µg/m³)',
+                        data: pm25Data,
+                        borderColor: '#FF7E00',
+                        backgroundColor: 'transparent',
+                        borderWidth: 1.5,
+                        borderDash: [5, 5],
+                        tension: 0.3,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#a0aec0',
+                            font: { family: 'Outfit' }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                        ticks: { color: '#a0aec0', maxTicksLimit: 6 }
+                    },
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                        ticks: { color: '#a0aec0' },
+                        title: { display: true, text: 'AQI Value', color: '#a0aec0' }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        grid: { drawOnChartArea: false },
+                        ticks: { color: '#a0aec0' },
+                        title: { display: true, text: 'PM2.5 Concentration', color: '#a0aec0' }
+                    }
+                }
+            }
+        });
+    }
+
+    function loadAnomalies() {
+        fetch('/api/v1/anomalies')
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success' && data.anomalies) {
+                    data.anomalies.forEach(anomaly => {
+                        const city = anomaly.city;
+                        const severity = anomaly.severity;
+                        const triggers = anomaly.triggers.join(', ');
+                        const delta = anomaly.delta || 0;
+
+                        // 1. Update Leaflet Marker & Popup
+                        if (markers[city]) {
+                            const marker = markers[city];
+                            const popup = marker.getPopup();
+                            const pulseColor = severity === 'critical' ? '#FF0000' : '#FF7E00';
+                            
+                            // Highlight marker color
+                            marker.setStyle({
+                                color: pulseColor,
+                                weight: 3,
+                                opacity: 1.0,
+                                fillOpacity: 0.8
+                            });
+
+                            let currentContent = popup.getContent();
+                            if (!currentContent.includes('Spike')) {
+                                const badge = `<span class="badge" style="background: ${pulseColor}; color: #000; font-size: 10px; padding: 2px 5px; margin-left: 5px; border-radius: 4px;">⚠️ Spike</span>`;
+                                let newContent = currentContent.replace(`</h6>`, ` ${badge}</h6>`);
+                                const lastIndex = newContent.lastIndexOf('</div>');
+                                if (lastIndex !== -1) {
+                                    newContent = newContent.substring(0, lastIndex) + 
+                                        `<div style="font-size: 11px; color: ${pulseColor}; margin-top: 5px;"><strong>Spike Det:</strong> ${triggers} (${delta >= 0 ? '+' : ''}${delta.toFixed(0)} AQI/h)</div>` + 
+                                        newContent.substring(lastIndex);
+                                }
+                                popup.setContent(newContent);
+                            }
+                        }
+
+        // 2. Update Dashboard Standings Table (rank col is now index 0, city is index 1)
+        const rows = document.querySelectorAll('.table-premium tbody tr');
+        rows.forEach(row => {
+            const cityNameCell = row.cells[1];
+            if (cityNameCell && cityNameCell.innerText.trim() === city) {
+                if (!cityNameCell.innerHTML.includes('badge')) {
+                    const badgeClass = severity === 'critical' ? 'danger' : 'warning';
+                    cityNameCell.innerHTML = `<span class="anomaly-beacon"></span>${city} <span class="badge bg-${badgeClass} text-dark" style="font-size: 10px; vertical-align: middle;">Spike</span>`;
+                }
+            }
+        });
+    });
+    }
+})
+.catch(err => console.error("Error loading anomalies:", err));
+}
+
+function showHealthAdvisory(aqi, city) {
+    fetch(`/api/v1/health_advice?aqi=${aqi}`)
+        .then(r => r.json())
+        .then(data => {
+            const existing = document.getElementById('healthAdvisoryToast');
+            if (existing) existing.remove();
+            const toast = document.createElement('div');
+            toast.id = 'healthAdvisoryToast';
+            toast.style.cssText = `position:fixed;bottom:24px;right:24px;z-index:9999;max-width:320px;
+                background:rgba(10,14,26,0.96);border:1px solid ${data.color}40;
+                border-left:3px solid ${data.color};border-radius:12px;
+                padding:1rem 1.25rem;box-shadow:0 8px 32px rgba(0,0,0,0.5);
+                animation:fadeIn 0.3s ease;`;
+            toast.innerHTML = `
+                <div class="d-flex justify-content-between align-items-start mb-1">
+                    <strong style="color:${data.color}">${city} — ${data.label}</strong>
+                    <button onclick="this.closest('#healthAdvisoryToast').remove()" 
+                        style="background:none;border:none;color:#a0aec0;font-size:1.1rem;cursor:pointer;padding:0 0 0 8px">×</button>
+                </div>
+                <div style="font-size:2rem;font-weight:800;color:${data.color};line-height:1">${aqi}</div>
+                <div style="font-size:0.8rem;color:#a0aec0;margin-top:6px">${data.advice}</div>`;
+            document.body.appendChild(toast);
+            setTimeout(() => { if (toast.parentNode) toast.remove(); }, 6000);
+        });
+}
+
+function loadLiveStats() {
+    fetch('/api/v1/live_summary').then(r => r.json()).then(data => {
+        if (data.status !== 'success') return;
+        const el = id => document.getElementById(id);
+        if (el('spReadings')) el('spReadings').textContent = data.total_readings.toLocaleString();
+        if (el('spWorst') && data.top_cities.length > 0) {
+            el('spWorst').textContent = data.top_cities[0].aqi;
+            el('spWorst').style.color = data.top_cities[0].color;
+        }
+    });
+    fetch('/api/v1/anomalies').then(r => r.json()).then(data => {
+        const el = document.getElementById('spAnomalies');
+        if (el && data.status === 'success') {
+            el.textContent = data.count;
+            if (data.count > 0) el.style.color = '#ff6b6b';
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    initMap();
+    loadAnomalies();
+    loadLiveStats();
+    const firstCity = document.getElementById('citySelector').value;
+    if (firstCity) {
+        loadCityStats(firstCity);
+    }
+});
+</script>
+
+<style>
+    /* Styling map popup matching dark premium theme */
+    .leaflet-popup-content-wrapper {
+        background: rgba(16, 22, 42, 0.95) !important;
+        border: 1px solid var(--card-border);
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }
+    .leaflet-popup-tip {
+        background: rgba(16, 22, 42, 0.95) !important;
+    }
+</style>
+{% endblock %}

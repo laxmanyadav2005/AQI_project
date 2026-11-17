@@ -1,0 +1,217 @@
+{% extends 'layout.html' %}
+
+{% block title %}CPCB AQI Calculator | IND-AQI Platform{% endblock %}
+
+{% block content %}
+<div class="row g-4 animated-fade justify-content-center">
+    <div class="col-lg-10 col-12">
+        <div class="aqi-card">
+            <h2>🇮🇳 Official CPCB AQI Calculator</h2>
+            <p class="text-secondary mb-0">Compute the official Air Quality Index (IND-AQI) using piecewise linear interpolation as defined by the Central Pollution Control Board (CPCB).</p>
+        </div>
+    </div>
+
+    <!-- Inputs Form -->
+    <div class="col-lg-5 col-12">
+        <div class="aqi-card">
+            <h3 class="card-title"><i class="fa-solid fa-vials"></i> Enter Concentrations</h3>
+            <form id="calculatorForm">
+                <div class="row g-3">
+                    <div class="col-sm-6 col-12">
+                        <label for="pm25" class="form-label">PM2.5 (24h avg, µg/m³)</label>
+                        <input type="number" step="0.1" class="form-control" id="pm25" name="PM2.5" placeholder="e.g. 45">
+                    </div>
+                    <div class="col-sm-6 col-12">
+                        <label for="pm10" class="form-label">PM10 (24h avg, µg/m³)</label>
+                        <input type="number" step="0.1" class="form-control" id="pm10" name="PM10" placeholder="e.g. 110">
+                    </div>
+                    <div class="col-sm-6 col-12">
+                        <label for="no2" class="form-label">NO₂ (24h avg, µg/m³)</label>
+                        <input type="number" step="0.1" class="form-control" id="no2" name="NO2" placeholder="e.g. 35">
+                    </div>
+                    <div class="col-sm-6 col-12">
+                        <label for="so2" class="form-label">SO₂ (24h avg, µg/m³)</label>
+                        <input type="number" step="0.1" class="form-control" id="so2" name="SO2" placeholder="e.g. 15">
+                    </div>
+                    <div class="col-sm-6 col-12">
+                        <label for="co" class="form-label">CO (8h avg, mg/m³)</label>
+                        <input type="number" step="0.01" class="form-control" id="co" name="CO" placeholder="e.g. 1.2">
+                    </div>
+                    <div class="col-sm-6 col-12">
+                        <label for="o3" class="form-label">O₃ (8h avg, µg/m³)</label>
+                        <input type="number" step="0.1" class="form-control" id="o3" name="O3" placeholder="e.g. 60">
+                    </div>
+                    <div class="col-12 mt-4">
+                        <button type="submit" class="btn btn-primary w-100"><i class="fa-solid fa-calculator"></i> Calculate AQI</button>
+                    </div>
+                </div>
+            </form>
+            <div class="alert alert-info mt-3 small mb-0" role="alert" style="background: rgba(0, 120, 212, 0.05); border-color: var(--card-border);">
+                <i class="fa-solid fa-circle-info text-info"></i> <strong>CPCB Rules:</strong> Requires at least <strong>3 pollutants</strong>, where at least one must be a particulate matter (<strong>PM2.5 or PM10</strong>).
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Display with Premium SVG Gauge -->
+    <div class="col-lg-5 col-12">
+        <div class="aqi-card h-100 d-flex flex-column justify-content-center text-center align-items-center" id="resultCard" style="min-height: 420px;">
+            <div id="resultPlaceholder" class="py-4">
+                <i class="fa-solid fa-wind text-secondary mb-3" style="font-size: 4rem; opacity: 0.3;"></i>
+                <h4>Ready to Calculate</h4>
+                <p class="text-secondary small px-4">Enter pollutant concentrations on the left and submit to view the official calculated Air Quality Index and health guidelines.</p>
+            </div>
+            
+            <div id="resultOutput" style="display: none;" class="w-100">
+                <h4 class="mb-3">IND-AQI Result</h4>
+                
+                <!-- Circular SVG Progress Gauge -->
+                <div class="position-relative d-flex justify-content-center align-items-center my-4" style="height: 200px;">
+                    <svg width="200" height="200" viewBox="0 0 200 200" style="transform: rotate(-90deg);">
+                        <!-- Background track -->
+                        <circle cx="100" cy="100" r="80" stroke="rgba(255, 255, 255, 0.05)" stroke-width="12" fill="transparent" />
+                        <!-- Dynamic meter -->
+                        <circle id="gaugeMeter" cx="100" cy="100" r="80" stroke="#00f2fe" stroke-width="12" fill="transparent"
+                                stroke-dasharray="502.6" stroke-dashoffset="502.6" stroke-linecap="round"
+                                style="transition: stroke-dashoffset 1s ease-out, stroke 1s;" />
+                    </svg>
+                    <div class="position-absolute d-flex flex-column align-items-center justify-content-center">
+                        <span class="fs-1 fw-bold" id="aqiValDisplay" style="font-size: 3rem !important;">0</span>
+                        <span class="small text-secondary fw-semibold">AQI</span>
+                    </div>
+                </div>
+
+                <div class="my-3">
+                    <span class="badge-aqi fs-6 py-2 px-4" id="aqiCategoryDisplay">Status</span>
+                </div>
+                <p class="text-secondary px-4 small" id="aqiDescDisplay">Advisory description goes here.</p>
+                
+                <hr class="my-4" style="border-color: var(--card-border);">
+                
+                <div class="text-start px-4">
+                    <h5 class="small text-secondary mb-3">Sub-indices Breakdown:</h5>
+                    <div id="subIndicesBreakdown" class="row g-2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pollutant Info Cards (CPCB vs WHO standards) -->
+    <div class="col-lg-10 col-12 mt-4">
+        <div class="aqi-card">
+            <h3 class="card-title mb-4"><i class="fa-solid fa-circle-exclamation text-warning"></i> Pollutant CPCB Safe Limits (24-hour Average)</h3>
+            <div class="row g-3">
+                <div class="col-md-4 col-sm-6 col-12">
+                    <div class="p-3 rounded" style="background: rgba(255,255,255,0.02); border: 1px solid var(--card-border);">
+                        <h6 class="fw-bold mb-1">PM2.5</h6>
+                        <p class="small text-secondary mb-2">Fine inhalable particles (size &le; 2.5 &micro;m)</p>
+                        <div class="d-flex justify-content-between small"><span class="text-secondary">CPCB Limit:</span><strong>60 &micro;g/m&sup3;</strong></div>
+                    </div>
+                </div>
+                <div class="col-md-4 col-sm-6 col-12">
+                    <div class="p-3 rounded" style="background: rgba(255,255,255,0.02); border: 1px solid var(--card-border);">
+                        <h6 class="fw-bold mb-1">PM10</h6>
+                        <p class="small text-secondary mb-2">Coarse dust particles (size &le; 10 &micro;m)</p>
+                        <div class="d-flex justify-content-between small"><span class="text-secondary">CPCB Limit:</span><strong>100 &micro;g/m&sup3;</strong></div>
+                    </div>
+                </div>
+                <div class="col-md-4 col-sm-6 col-12">
+                    <div class="p-3 rounded" style="background: rgba(255,255,255,0.02); border: 1px solid var(--card-border);">
+                        <h6 class="fw-bold mb-1">NO₂</h6>
+                        <p class="small text-secondary mb-2">Nitrogen Dioxide from engine exhaust</p>
+                        <div class="d-flex justify-content-between small"><span class="text-secondary">CPCB Limit:</span><strong>80 &micro;g/m&sup3;</strong></div>
+                    </div>
+                </div>
+                <div class="col-md-4 col-sm-6 col-12">
+                    <div class="p-3 rounded" style="background: rgba(255,255,255,0.02); border: 1px solid var(--card-border);">
+                        <h6 class="fw-bold mb-1">SO₂</h6>
+                        <p class="small text-secondary mb-2">Sulfur Dioxide from burning fossil fuels</p>
+                        <div class="d-flex justify-content-between small"><span class="text-secondary">CPCB Limit:</span><strong>80 &micro;g/m&sup3;</strong></div>
+                    </div>
+                </div>
+                <div class="col-md-4 col-sm-6 col-12">
+                    <div class="p-3 rounded" style="background: rgba(255,255,255,0.02); border: 1px solid var(--card-border);">
+                        <h6 class="fw-bold mb-1">CO (8h)</h6>
+                        <p class="small text-secondary mb-2">Carbon Monoxide from incomplete burning</p>
+                        <div class="d-flex justify-content-between small"><span class="text-secondary">CPCB Limit:</span><strong>2.0 mg/m&sup3;</strong></div>
+                    </div>
+                </div>
+                <div class="col-md-4 col-sm-6 col-12">
+                    <div class="p-3 rounded" style="background: rgba(255,255,255,0.02); border: 1px solid var(--card-border);">
+                        <h6 class="fw-bold mb-1">O₃ (8h)</h6>
+                        <p class="small text-secondary mb-2">Ground-level ozone formed by sunlight reactions</p>
+                        <div class="d-flex justify-content-between small"><span class="text-secondary">CPCB Limit:</span><strong>100 &micro;g/m&sup3;</strong></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('calculatorForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        
+        fetch('/calculator', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            const placeholder = document.getElementById('resultPlaceholder');
+            const output = document.getElementById('resultOutput');
+            
+            if (data.status === 'success') {
+                placeholder.style.display = 'none';
+                output.style.display = 'block';
+                
+                // Animate SVG Gauge
+                const val = data.aqi;
+                const percent = Math.min(1.0, val / 500); // Scale up to max 500 CPCB standard
+                const circumference = 502.6; // 2 * pi * 80
+                const offset = circumference * (1 - percent);
+                
+                const meter = document.getElementById('gaugeMeter');
+                meter.style.strokeDashoffset = offset;
+                meter.style.stroke = data.color;
+                
+                // Set text outputs
+                document.getElementById('aqiValDisplay').innerText = val;
+                
+                const catDisplay = document.getElementById('aqiCategoryDisplay');
+                catDisplay.innerText = data.category;
+                catDisplay.style.color = data.color;
+                catDisplay.style.background = `rgba(${hexToRgb(data.color)}, 0.15)`;
+                
+                document.getElementById('aqiDescDisplay').innerText = data.description;
+                
+                // Sub-indices breakdown list
+                const breakdown = document.getElementById('subIndicesBreakdown');
+                breakdown.innerHTML = '';
+                for (const [pollutant, sub_val] of Object.entries(data.sub_indices)) {
+                    breakdown.innerHTML += `
+                        <div class="col-6 d-flex justify-content-between border-bottom pb-1 small" style="border-color: var(--card-border) !important;">
+                            <span class="text-secondary">${pollutant}</span>
+                            <span class="fw-bold">${sub_val}</span>
+                        </div>
+                    `;
+                }
+            } else {
+                alert(data.message);
+            }
+        })
+        .catch(err => console.error("Error calculating AQI:", err));
+    });
+
+    function hexToRgb(hex) {
+        hex = hex.replace('#', '');
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        return `${r}, ${g}, ${b}`;
+    }
+</script>
+{% endblock %}

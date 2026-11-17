@@ -1,0 +1,162 @@
+{% extends 'layout.html' %}
+
+{% block title %}Telegram Alerts | IND-AQI Platform{% endblock %}
+
+{% block content %}
+<div class="row g-4 animated-fade">
+    <!-- Header Section -->
+    <div class="col-12">
+        <div class="aqi-card">
+            <h1 class="mb-2"><i class="fa-solid fa-bell"></i> Telegram Alerts Portal</h1>
+            <p class="text-secondary mb-0">Configure real-time notifications for automated air quality anomaly alerts and health advisory warnings.</p>
+        </div>
+    </div>
+
+    <!-- Configuration Status & Test Form -->
+    <div class="col-lg-6 col-12">
+        <div class="aqi-card mb-4">
+            <h3 class="card-title"><i class="fa-solid fa-gears"></i> Bot Connection Status</h3>
+            
+            {% if bot_configured %}
+                <div class="alert alert-success d-flex align-items-center bg-success-subtle text-success border border-success-subtle rounded p-3 mb-0">
+                    <i class="fa-solid fa-circle-check fs-4 me-3"></i>
+                    <div>
+                        <strong>Telegram Bot is Active!</strong><br>
+                        Notifications are online. The ingestion scheduler will automatically send health alerts for new anomalies.
+                    </div>
+                </div>
+            {% else %}
+                <div class="alert alert-warning bg-warning-subtle text-warning border border-warning-subtle rounded p-3 mb-3">
+                    <i class="fa-solid fa-triangle-exclamation fs-4 me-3 float-start"></i>
+                    <div>
+                        <strong>Telegram Bot is Not Configured</strong><br>
+                        Please add the required variables to your local <code>.env</code> file or Render environment settings to enable live alerts:
+                        <ul class="mb-0 mt-2 small">
+                            <li><code>TELEGRAM_BOT_TOKEN</code> (Generate via BotFather on Telegram)</li>
+                            <li><code>TELEGRAM_CHAT_ID</code> (Get your Chat ID using @userinfobot)</li>
+                        </ul>
+                    </div>
+                </div>
+                <p class="text-secondary small">Refer to the <code>.env.example</code> file in the repository root for detailed guidance.</p>
+            {% endif %}
+        </div>
+
+        <div class="aqi-card">
+            <h3 class="card-title"><i class="fa-solid fa-paper-plane"></i> Send Test Notification</h3>
+            <form id="testAlertForm" class="mt-3">
+                <div class="mb-3">
+                    <label for="alertCity" class="form-label">Select City:</label>
+                    <select class="form-control" id="alertCity" required>
+                        {% for city in cities %}
+                            <option value="{{ city }}">{{ city }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label for="alertAqi" class="form-label">Simulated AQI:</label>
+                        <input type="number" class="form-control" id="alertAqi" min="0" max="500" value="325" required>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label for="alertSeverity" class="form-label">Severity Level:</label>
+                        <select class="form-control" id="alertSeverity" required>
+                            <option value="warning">Warning ⚠️</option>
+                            <option value="critical" selected>Critical 🚨</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="alertDelta" class="form-label">Simulated Change (1-hour delta):</label>
+                    <input type="number" class="form-control" id="alertDelta" value="65">
+                </div>
+                <button type="submit" class="btn btn-premium w-100" {% if not bot_configured %}disabled{% endif %}>
+                    <i class="fa-solid fa-paper-plane"></i> Send Test Message
+                </button>
+            </form>
+            <div id="testResult" class="mt-3 text-center small fw-bold"></div>
+        </div>
+    </div>
+
+    <!-- Alert Audit logs -->
+    <div class="col-lg-6 col-12">
+        <div class="aqi-card h-100" style="max-height: 580px; overflow-y: auto;">
+            <h3 class="card-title"><i class="fa-solid fa-clock-rotate-left"></i> Recent Alert Dispatch Logs</h3>
+            <div class="table-responsive mt-3">
+                <table class="table table-premium table-hover">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>City</th>
+                            <th>Value</th>
+                            <th>Level</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if logs %}
+                            {% for log in logs %}
+                            <tr>
+                                <td class="text-secondary small">{{ log.alert_time }}</td>
+                                <td class="fw-bold">{{ log.city }}</td>
+                                <td class="fw-bold">{{ log.aqi|round|int }}</td>
+                                <td>
+                                    <span class="badge {% if log.severity == 'critical' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
+                                        {{ log.severity|upper }}
+                                    </span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center text-secondary py-4">No health alerts have been dispatched yet.</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('testAlertForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const resultDiv = document.getElementById('testResult');
+        resultDiv.className = "mt-3 text-center small text-secondary";
+        resultDiv.innerText = "Dispatching test message...";
+        
+        const payload = {
+            city: document.getElementById('alertCity').value,
+            aqi: parseFloat(document.getElementById('alertAqi').value),
+            severity: document.getElementById('alertSeverity').value,
+            delta: parseFloat(document.getElementById('alertDelta').value)
+        };
+        
+        fetch('/api/v1/send_test_alert', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                resultDiv.className = "mt-3 text-center small text-success";
+                resultDiv.innerText = "✓ Test alert successfully sent to Telegram!";
+                // Reload page after a delay to show the log entry
+                setTimeout(() => window.location.reload(), 1500);
+            } else {
+                resultDiv.className = "mt-3 text-center small text-danger";
+                resultDiv.innerText = "✗ Failed: " + data.message;
+            }
+        })
+        .catch(err => {
+            resultDiv.className = "mt-3 text-center small text-danger";
+            resultDiv.innerText = "✗ Network error: " + err;
+        });
+    });
+</script>
+{% endblock %}

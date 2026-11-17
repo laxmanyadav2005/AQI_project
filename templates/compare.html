@@ -1,0 +1,194 @@
+{% extends 'layout.html' %}
+
+{% block title %}Compare Cities | IND-AQI Platform{% endblock %}
+
+{% block content %}
+<div class="row g-4 animated-fade">
+    <!-- Header Section -->
+    <div class="col-12">
+        <div class="aqi-card">
+            <h2>📊 Side-by-Side City Comparison</h2>
+            <p class="text-secondary mb-0">Select two cities and a specific pollutant metric to compare their historical records, averages, and trend lines.</p>
+        </div>
+    </div>
+
+    <!-- Selectors Card -->
+    <div class="col-12">
+        <div class="aqi-card">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4 col-12">
+                    <label for="city1" class="form-label">City 1</label>
+                    <select class="form-control" id="city1" onchange="runComparison()">
+                        {% for city in cities %}
+                        <option value="{{ city }}" {% if loop.index == 1 %}selected{% endif %}>{{ city }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4 col-12">
+                    <label for="metricSelect" class="form-label">Metric to Compare</label>
+                    <select class="form-control" id="metricSelect" onchange="runComparison()">
+                        <option value="aqi" selected>Overall AQI Value</option>
+                        <option value="pm25">PM2.5 Concentration (µg/m³)</option>
+                        <option value="pm10">PM10 Concentration (µg/m³)</option>
+                        <option value="no2">NO₂ Concentration (µg/m³)</option>
+                        <option value="so2">SO₂ Concentration (µg/m³)</option>
+                        <option value="co">CO Concentration (mg/m³)</option>
+                        <option value="o3">O₃ Concentration (µg/m³)</option>
+                    </select>
+                </div>
+                <div class="col-md-4 col-12">
+                    <label for="city2" class="form-label">City 2</label>
+                    <select class="form-control" id="city2" onchange="runComparison()">
+                        {% for city in cities %}
+                        <option value="{{ city }}" {% if loop.index == 2 %}selected{% endif %}>{{ city }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Summary Cards -->
+    <div class="col-md-6 col-12">
+        <div class="aqi-card text-center" id="city1StatsCard" style="border-left: 4px solid #00f2fe !important;">
+            <h4 id="city1NameDisplay" class="mb-1">City 1</h4>
+            <div class="fs-1 fw-bold text-info my-2" id="city1AvgDisplay">0.0</div>
+            <p class="small text-secondary mb-0" id="city1LabelDisplay">30-Day Average Value</p>
+        </div>
+    </div>
+    <div class="col-md-6 col-12">
+        <div class="aqi-card text-center" id="city2StatsCard" style="border-left: 4px solid #FF7E00 !important;">
+            <h4 id="city2NameDisplay" class="mb-1">City 2</h4>
+            <div class="fs-1 fw-bold text-warning my-2" id="city2AvgDisplay">0.0</div>
+            <p class="small text-secondary mb-0" id="city2LabelDisplay">30-Day Average Value</p>
+        </div>
+    </div>
+
+    <!-- Comparison Chart -->
+    <div class="col-12">
+        <div class="aqi-card">
+            <h3 class="card-title" id="chartTitle"><i class="fa-solid fa-chart-line"></i> Historical Comparison</h3>
+            <div style="height: 350px; position: relative;">
+                <canvas id="comparisonChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let compChart = null;
+
+    async function runComparison() {
+        const c1 = document.getElementById('city1').value;
+        const c2 = document.getElementById('city2').value;
+        const metric = document.getElementById('metricSelect').value;
+        const metricLabel = document.getElementById('metricSelect').options[document.getElementById('metricSelect').selectedIndex].text;
+        
+        if (c1 === c2) {
+            alert("Please select two different cities for comparison.");
+            return;
+        }
+
+        document.getElementById('city1NameDisplay').innerText = c1;
+        document.getElementById('city2NameDisplay').innerText = c2;
+        document.getElementById('chartTitle').innerHTML = `<i class="fa-solid fa-chart-line"></i> Historical ${metricLabel} Comparison`;
+        
+        try {
+            const [res1, res2] = await Promise.all([
+                fetch(`/api/city_stats/${c1}`).then(r => r.json()),
+                fetch(`/api/city_stats/${c2}`).then(r => r.json())
+            ]);
+            
+            if (res1.status === 'success' && res2.status === 'success') {
+                // Extract selected metric arrays
+                const data1 = res1[metric];
+                const data2 = res2[metric];
+                
+                // Calculate average of selected metric
+                const avg1 = calculateAverage(data1);
+                const avg2 = calculateAverage(data2);
+                
+                document.getElementById('city1AvgDisplay').innerText = avg1;
+                document.getElementById('city2AvgDisplay').innerText = avg2;
+                
+                document.getElementById('city1LabelDisplay').innerText = `30-Day Average ${metric.toUpperCase()}`;
+                document.getElementById('city2LabelDisplay').innerText = `30-Day Average ${metric.toUpperCase()}`;
+                
+                renderComparisonChart(res1.dates, data1, data2, c1, c2, metricLabel);
+            }
+        } catch (err) {
+            console.error("Error loading comparison:", err);
+        }
+    }
+
+    function calculateAverage(arr) {
+        if (!arr || arr.length === 0) return "0.0";
+        const sum = arr.reduce((a, b) => a + b, 0);
+        return (sum / arr.length).toFixed(1);
+    }
+
+    function renderComparisonChart(dates, dataset1, dataset2, label1, label2, metricName) {
+        const ctx = document.getElementById('comparisonChart').getContext('2d');
+        
+        if (compChart) {
+            compChart.destroy();
+        }
+        
+        compChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: dates,
+                datasets: [
+                    {
+                        label: label1,
+                        data: dataset1,
+                        borderColor: '#00f2fe',
+                        backgroundColor: 'rgba(0, 242, 254, 0.05)',
+                        borderWidth: 2.5,
+                        tension: 0.3,
+                        fill: true
+                    },
+                    {
+                        label: label2,
+                        data: dataset2,
+                        borderColor: '#FF7E00',
+                        backgroundColor: 'rgba(255, 126, 0, 0.05)',
+                        borderWidth: 2.5,
+                        tension: 0.3,
+                        fill: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#a0aec0',
+                            font: { family: 'Outfit' }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                        ticks: { color: '#a0aec0', maxTicksLimit: 6 }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                        ticks: { color: '#a0aec0' },
+                        title: { display: true, text: metricName, color: '#a0aec0' }
+                    }
+                }
+            }
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        runComparison();
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,263 @@
+{% extends 'layout.html' %}
+
+{% block title %}Policy Insights | IND-AQI Platform{% endblock %}
+
+{% block content %}
+<div class="row g-4 animated-fade">
+    <!-- Header Section -->
+    <div class="col-12">
+        <div class="aqi-card">
+            <h1 class="mb-2"><i class="fa-solid fa-brain"></i> Machine Learning Policy Insights</h1>
+            <p class="text-secondary mb-0">Translate predictive models and atmospheric trends into actionable public health policies and clean air strategies.</p>
+        </div>
+    </div>
+
+    <!-- City Specific Diagnostic Selector -->
+    <div class="col-12">
+        <div class="aqi-card">
+            <div class="row align-items-center">
+                <div class="col-md-8 col-12">
+                    <h4 class="mb-1"><i class="fa-solid fa-map-location-dot"></i> City Diagnostic Dashboard</h4>
+                    <p class="text-secondary small mb-0">Select a city to view customized pollutant ratios, temporal cycles, and specific policy recommendations.</p>
+                </div>
+                <div class="col-md-4 col-12 mt-md-0 mt-3">
+                    <select class="form-control" id="cityInsightSelector" onchange="loadCityInsights(this.value)">
+                        {% for city in cities %}
+                            <option value="{{ city }}" {% if city == 'Delhi' %}selected{% endif %}>{{ city }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Model Feature Importance (XGBoost Explainability) -->
+    <div class="col-lg-6 col-12">
+        <div class="aqi-card h-100 d-flex flex-column justify-content-between" style="min-height: 400px;">
+            <div>
+                <h3 class="card-title"><i class="fa-solid fa-sliders"></i> XGBoost Model Feature Importance</h3>
+                <p class="text-secondary small">What features drive next-day AQI forecasts the most? Permutation importance scores loaded directly from our live predictor model.</p>
+            </div>
+            <div class="flex-grow-1 my-3" style="min-height: 250px; position: relative;">
+                <canvas id="importanceChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Diurnal Cycle Profile -->
+    <div class="col-lg-6 col-12">
+        <div class="aqi-card h-100 d-flex flex-column justify-content-between" style="min-height: 400px;">
+            <div>
+                <h3 class="card-title"><i class="fa-solid fa-clock"></i> 24-Hour Diurnal Pollution Profile</h3>
+                <p class="text-secondary small">Average hourly AQI distribution across a 24-hour cycle. Notice the traffic peaks in the mornings and evenings.</p>
+            </div>
+            <div class="flex-grow-1 my-3" style="min-height: 250px; position: relative;">
+                <canvas id="diurnalChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Seasonal & Weekly Variations -->
+    <div class="col-lg-4 col-12">
+        <div class="aqi-card h-100">
+            <h3 class="card-title"><i class="fa-solid fa-calendar-days"></i> Seasonal & Weekly Impacts</h3>
+            
+            <div class="mt-4">
+                <h5 class="text-secondary mb-3">Seasonal AQI Averages</h5>
+                <div class="table-responsive">
+                    <table class="table table-premium text-center">
+                        <tbody>
+                            <tr>
+                                <td class="text-start text-secondary">Winter ❄️</td>
+                                <td class="fw-bold text-danger" id="season-winter">--</td>
+                            </tr>
+                            <tr>
+                                <td class="text-start text-secondary">Spring 🌸</td>
+                                <td class="fw-bold text-warning" id="season-spring">--</td>
+                            </tr>
+                            <tr>
+                                <td class="text-start text-secondary">Summer ☀️</td>
+                                <td class="fw-bold text-info" id="season-summer">--</td>
+                            </tr>
+                            <tr>
+                                <td class="text-start text-secondary">Monsoon 🌧️</td>
+                                <td class="fw-bold text-success" id="season-monsoon">--</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <h5 class="text-secondary mb-3">Weekly Traffic Comparison</h5>
+                <div class="row text-center">
+                    <div class="col-6 border-end border-secondary border-opacity-25">
+                        <div class="text-secondary small">Weekdays</div>
+                        <div class="fs-4 fw-bold text-light mt-1" id="weekly-weekday">--</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="text-secondary small">Weekends</div>
+                        <div class="fs-4 fw-bold text-info mt-1" id="weekly-weekend">--</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Policy Recommendations List -->
+    <div class="col-lg-8 col-12">
+        <div class="aqi-card h-100">
+            <h3 class="card-title"><i class="fa-solid fa-hand-holding-hand"></i> Air Action Plan & Recommendations</h3>
+            <p class="text-secondary small mb-4">Diagnostics-driven policy directives formulated dynamically based on current local pollutant ratios.</p>
+            
+            <div id="policyContainer" class="d-flex flex-column gap-3">
+                <!-- Dynamically populated -->
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let importanceChart = null;
+    let diurnalChart = null;
+
+    // Load feature importances (precomputed or loaded from backend)
+    const featureImportanceData = {{ importances|tojson }};
+
+    function initImportanceChart() {
+        const ctx = document.getElementById('importanceChart').getContext('2d');
+        const labels = featureImportanceData.map(x => x.feature);
+        const values = featureImportanceData.map(x => x.importance);
+
+        importanceChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Relative Importance Score',
+                    data: values,
+                    backgroundColor: 'rgba(0, 242, 254, 0.45)',
+                    borderColor: '#00f2fe',
+                    borderWidth: 1.5,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                        ticks: { color: '#a0aec0' }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: { color: '#a0aec0' }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderDiurnalChart(hours, aqiValues) {
+        const ctx = document.getElementById('diurnalChart').getContext('2d');
+        
+        if (diurnalChart) {
+            diurnalChart.destroy();
+        }
+
+        diurnalChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: hours.map(h => `${String(h).padStart(2, '0')}:00`),
+                datasets: [{
+                    label: 'Diurnal AQI Average',
+                    data: aqiValues,
+                    borderColor: '#FF7E00',
+                    backgroundColor: 'rgba(255, 126, 0, 0.05)',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                        ticks: { color: '#a0aec0', maxTicksLimit: 8 }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                        ticks: { color: '#a0aec0' }
+                    }
+                }
+            }
+        });
+    }
+
+    function loadCityInsights(city) {
+        fetch(`/api/v1/policy_insights?city=${city}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Update Seasonal
+                    document.getElementById('season-winter').innerText = data.temporal.seasonal.Winter || 'N/A';
+                    document.getElementById('season-spring').innerText = data.temporal.seasonal.Spring || 'N/A';
+                    document.getElementById('season-summer').innerText = data.temporal.seasonal.Summer || 'N/A';
+                    document.getElementById('season-monsoon').innerText = data.temporal.seasonal.Monsoon || 'N/A';
+
+                    // Update Weekly
+                    document.getElementById('weekly-weekday').innerText = data.temporal.weekly.Weekday || 'N/A';
+                    document.getElementById('weekly-weekend').innerText = data.temporal.weekly.Weekend || 'N/A';
+
+                    // Update Diurnal Chart
+                    renderDiurnalChart(data.temporal.diurnal.hours, data.temporal.diurnal.aqi);
+
+                    // Update Policy Recommendations
+                    const container = document.getElementById('policyContainer');
+                    container.innerHTML = '';
+                    
+                    data.recommendations.forEach(rec => {
+                        const recCard = document.createElement('div');
+                        recCard.className = 'p-3 rounded border border-secondary border-opacity-25 bg-dark bg-opacity-20 d-flex flex-column gap-1';
+                        
+                        let badgeColor = 'bg-secondary';
+                        if (rec.priority.includes('CRITICAL')) badgeColor = 'bg-danger';
+                        else if (rec.priority.includes('HIGH')) badgeColor = 'bg-warning text-dark';
+                        else if (rec.priority.includes('MEDIUM')) badgeColor = 'bg-info text-dark';
+
+                        recCard.innerHTML = `
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <span class="badge ${badgeColor}">${rec.priority}</span>
+                                <h5 class="mb-0 text-light">${rec.category}</h5>
+                            </div>
+                            <p class="mb-1 text-secondary small"><strong>Finding:</strong> ${rec.finding}</p>
+                            <p class="mb-0 text-info small"><strong>Direct Action:</strong> ${rec.action}</p>
+                        `;
+                        container.appendChild(recCard);
+                    });
+                }
+            })
+            .catch(err => console.error("Error loading insights:", err));
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        initImportanceChart();
+        const activeCity = document.getElementById('cityInsightSelector').value;
+        if (activeCity) {
+            loadCityInsights(activeCity);
+        }
+    });
+</script>
+{% endblock %}

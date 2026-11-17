@@ -1,0 +1,36 @@
+name: AQI Live Data Ingestion
+
+on:
+  # Run every 30 minutes
+  schedule:
+    - cron: '*/30 * * * *'
+  # Allow manual trigger from GitHub Actions UI
+  workflow_dispatch:
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger ingestion endpoint
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+        run: |
+          echo "Triggering live AQI data ingestion at $(date -u)"
+          response=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -X POST \
+            -H "X-Ingest-Token: ${INGEST_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${APP_URL}/api/v1/ingest")
+
+          echo "HTTP status: $response"
+          cat /tmp/response.json
+
+          if [ "$response" -ne 200 ]; then
+            echo "ERROR: Ingestion trigger returned non-200 status: $response"
+            exit 1
+          fi
+
+          echo "Ingestion triggered successfully."

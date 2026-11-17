@@ -1,0 +1,48 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Virtual environments ───────────────────────────────────────────────────────
+aqi_env/
+.venv/
+venv/
+env/
+
+# ── Secrets — NEVER commit ────────────────────────────────────────────────────
+.env
+
+# ── Raw / very large data files (not needed to run the app) ───────────────────
+data/raw/
+data/lstm/train_sequences.npz
+data/lstm/val_sequences.npz
+data/lstm/test_sequences.npz
+
+# ── Large trained model weights (re-train locally with train_lstm.py) ─────────
+# Small files (lstm_aqi.tflite, scalers.pkl, city_map.json, encoder .pkl) ARE
+# committed so the app works out-of-the-box after cloning.
+models/xgboost_aqi_predictor.pkl
+models/xgboost_aqi_classifier.pkl
+models/lstm_aqi_final.keras
+models/lstm_best.keras
+
+# ── EDA output images (reproducible with run_eda.py) ──────────────────────────
+outputs/*.png
+outputs/*.jpg
+
+# ── IDE / editor ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.log
+*.tmp
+seed_supabase.py
